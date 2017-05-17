@@ -1,2 +1,74 @@
 ---
-# tasks file for aws
+
+# Below code create a vpc on aws.
+
+- name: Create VPC 
+  ec2_vpc:
+    state: present
+    cidr_block: {{ VPC_CIDR }}
+    resource_tags: { "Environment":"Development" }
+    subnets:
+      - cidr: {{ SUBNET_CIDR }}
+        az: us-west-2a
+        resource_tags: { "Name":"Public" }
+    internet_gateway: True
+    route_tables:
+      - subnets:
+          - {{ SUBNET_CIDR }}
+        routes:
+          - dest: 0.0.0.0/0
+            gw: igw
+    region: us-west-2
+  register: vpc
+
+
+# Below is block of code for creating security group in vpc. 
+# vpc_id is fecthed from facts of vpc which is registered while creating vpc.
+
+- name: Create security group in vpc
+  ec2_group:
+    name: cleoweb
+    vpc_id: {{ vpc.vpc_id }} 
+    region: us-west-2
+    rules:
+      - proto: tcp
+        from_port: 80
+        to_port: 80
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: 0.0.0.0/0
+
+
+
+# Here we spin up ec2 instance on VPC and attach security group cleoweb.
+
+- name: Create ec2 instance
+  ec2:
+    key_name: cleo
+    group: cleoweb
+    instance_type: t2.nano
+    image: ami-efd0428f
+    wait: yes
+    wait_timeout: 60
+    volumes:
+      - device_name: /dev/xvda
+        volume_type: gp2
+        volume_size: 8
+    vpc_subnet_id: {{ vpc.subnets | get_public_subnets_ids('Type','Public') }}
+    assign_public_ip: yes
+  register: ec2
+
+
+# Register instance so would be usefull for provisioning software.
+
+- name: Add EC2 instances to host group
+  add_host: hostname={{ item.public_ip }} groupname=cleoweb
+  with_items: ec2.instances
+  register: IPaddress
+
+
+
+
+
